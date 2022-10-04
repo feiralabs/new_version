@@ -90,8 +90,8 @@ class NewVersion {
 
   /// This checks the version status, then displays a platform-specific alert
   /// with buttons to dismiss the update alert, or go to the app store.
-  showAlertIfNecessary({required BuildContext context}) async {
-    final VersionStatus? versionStatus = await getVersionStatus();
+  showAlertIfNecessary({required BuildContext context, Uri? origin}) async {
+    final VersionStatus? versionStatus = await getVersionStatus(origin);
     if (versionStatus != null && versionStatus.canUpdate) {
       showUpdateDialog(context: context, versionStatus: versionStatus);
     }
@@ -100,9 +100,11 @@ class NewVersion {
   /// This checks the version status and returns the information. This is useful
   /// if you want to display a custom alert, or use the information in a different
   /// way.
-  Future<VersionStatus?> getVersionStatus() async {
+  Future<VersionStatus?> getVersionStatus(Uri? uri) async {
     PackageInfo packageInfo = await PackageInfo.fromPlatform();
-    if (Platform.isIOS) {
+    if (uri != null) {
+      return _getWebsiteStoreVersion(packageInfo, uri);
+    } else if (Platform.isIOS) {
       return _getiOSStoreVersion(packageInfo);
     } else if (Platform.isAndroid) {
       return _getAndroidStoreVersion(packageInfo);
@@ -143,6 +145,35 @@ class NewVersion {
           _getCleanVersion(forceAppVersion ?? jsonObj['results'][0]['version']),
       appStoreLink: jsonObj['results'][0]['trackViewUrl'],
       releaseNotes: jsonObj['results'][0]['releaseNotes'],
+    );
+  }
+
+  Future<VersionStatus?> _getWebsiteStoreVersion(PackageInfo packageInfo, Uri uri) async {
+    final response = await http.get(uri);
+    if (response.statusCode != 200) {
+      debugPrint('Failed to query Website Version');
+      return null;
+    }
+    final jsonObj = json.decode(response.body);
+    var jsonMap;
+    if (Platform.isIOS) {
+      jsonMap = jsonObj['ios'];
+    } else {
+      jsonMap = jsonObj['android'];
+    }
+    var version = jsonMap['version'] ?? '0';
+    var storeLink = jsonMap['trackViewUrl'];
+    var appReleaseNotes = jsonMap['releaseNotes'];
+    if (version == '0') {
+      debugPrint('Can\'t find version information');
+      return null;
+    }
+    return VersionStatus._(
+      localVersion: _getCleanVersion(packageInfo.version),
+      storeVersion:
+          _getCleanVersion(jsonMap['version']),
+      appStoreLink: storeLink,
+      releaseNotes: appReleaseNotes,
     );
   }
 
